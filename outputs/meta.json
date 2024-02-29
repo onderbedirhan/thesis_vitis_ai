@@ -4,5 +4,5 @@
     "kernel": [
         "subgraph_quant_dense(TransferMatMulToConv2d)"
     ],
-    "target": "DPUCZDX8G_ISA1_B4096"
+    "target": "DPUCZDX8G_ISA1_B1600"
 }
