@@ -3,8 +3,8 @@ import numpy as np
 import cv2
 import vitis_ai_library
 import xir
-from IPython.display import Image
-import time  # Import the time module
+import time
+import os
 
 # Check if the model name argument is provided
 if len(sys.argv) != 2:
@@ -15,7 +15,9 @@ DPU_CONFIG = sys.argv[1]
 
 # file path
 MODEL_PATH = f"./outputs/{DPU_CONFIG}/{DPU_CONFIG}.xmodel"
-IMG_PATH = "./my_mnist_test.jpg"
+IMAGES_FOLDER = "./images/"
+
+all_process_start_time = time.time()
 
 g = xir.Graph.deserialize(MODEL_PATH)
 runner = vitis_ai_library.GraphRunner.create_graph_runner(g)
@@ -24,41 +26,56 @@ runner = vitis_ai_library.GraphRunner.create_graph_runner(g)
 inputDim = tuple(runner.get_inputs()[0].get_tensor().dims)
 inputData = [np.empty(inputDim, dtype=np.int8)]
 
-# input image
-image = cv2.imread(IMG_PATH, cv2.IMREAD_GRAYSCALE)
+total_inference_duration_ms = 0
+num_images = 10
 
-# normalization
-image = image/255.0
+for i in range(num_images):
+    IMG_PATH = os.path.join(IMAGES_FOLDER, f"{i}.jpg")
 
-# quantization
-fix_point = runner.get_input_tensors()[0].get_attr("fix_point")
-scale = 2 ** fix_point
-image = (image * scale).round()
-image = image.astype(np.int8)
+    # input image
+    image = cv2.imread(IMG_PATH, cv2.IMREAD_GRAYSCALE)
 
-# set input data
-inputData[0][0] = image.reshape(28, 28, 1)
+    # normalization
+    image = image / 255.0
 
-# Start timing
-start_time = time.time()
+    # quantization
+    fix_point = runner.get_input_tensors()[0].get_attr("fix_point")
+    scale = 2 ** fix_point
+    image = (image * scale).round()
+    image = image.astype(np.int8)
 
-# output buffer
-outputData = runner.get_outputs()
+    # set input data
+    inputData[0][0] = image.reshape(28, 28, 1)
 
-# prediction
-job_id = runner.execute_async(inputData, outputData)
-runner.wait(job_id)
+    # Start timing for inference
+    inference_start_time = time.time()
 
-end_time = time.time()
-duration_ms = (end_time - start_time) * 1000
+    # output buffer
+    outputData = runner.get_outputs()
 
-resultList = np.asarray(outputData[0])[0]
-resultIdx = resultList.argmax()
-resultVal = resultList[resultIdx]
-print("Predictions")
-for i, x in enumerate(resultList):
-    print("%d : %f"%(i, x))
+    # prediction
+    job_id = runner.execute_async(inputData, outputData)
+    runner.wait(job_id)
 
-print(f"Prediction time: {duration_ms:.2f} ms")  # Print the time taken in milliseconds
+    inference_end_time = time.time()
+
+    # Inference duration for this image
+    inference_duration_ms = (inference_end_time - inference_start_time) * 1000
+    total_inference_duration_ms += inference_duration_ms
+
+    resultList = np.asarray(outputData[0])[0]
+    resultIdx = resultList.argmax()
+    resultVal = resultList[resultIdx]
+
+    # Print only the most accurate value
+    print(f"Most accurate prediction for image {i}: {resultIdx} with value {resultVal:.5f}")
+
+average_inference_time_ms = total_inference_duration_ms / num_images
+
+print(f"Average inference duration: {average_inference_time_ms:.5f} ms")
+
+all_process_end_time = time.time()
+all_process_duration_ms = (all_process_end_time - all_process_start_time) * 1000
+print(f"All process duration: {all_process_duration_ms:.5f} ms")
 
 del runner
